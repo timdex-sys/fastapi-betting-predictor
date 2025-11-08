@@ -1,0 +1,49 @@
+# ==================== model.py ====================
+import math
+
+
+def lambdas_from_odds(o_home, o_draw, o_away):
+# Simple inverse odds to expected goals
+total = 1/o_home + 1/o_draw + 1/o_away
+lh = (1/o_home)/total * 3
+la = (1/o_away)/total * 3
+return lh, la
+
+
+def poisson(k, lam):
+return (lam**k) * math.exp(-lam) / math.factorial(k)
+
+
+def match_probs_from_lambdas(lh, la, max_goals=5):
+p_home = 0
+p_draw = 0
+p_away = 0
+for h in range(0, max_goals+1):
+for a in range(0, max_goals+1):
+prob = poisson(h, lh) * poisson(a, la)
+if h > a:
+p_home += prob
+elif h == a:
+p_draw += prob
+else:
+p_away += prob
+return {'home': p_home, 'draw': p_draw, 'away': p_away}
+
+
+def recommend_stakes(probs, odds, bankroll=100):
+# Simplified Kelly criterion
+stakes = {}
+for k in ['home','draw','away']:
+b = odds[k]-1
+p = probs[k]
+f = (b*p - (1-p))/b
+stakes[k] = max(0, round(f*bankroll,2))
+return stakes
+
+
+
+
+def load_params(file_path):
+import json
+with open(file_path,'r') as f:
+return json.load(f)

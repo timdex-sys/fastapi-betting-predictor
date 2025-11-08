@@ -1,0 +1,22 @@
+# ==================== dashboard/templates/index.html ====================
+<!DOCTYPE html>
+<html>
+<head>
+<title>Poisson Predictor Dashboard</title>
+</head>
+<body>
+<h1>Recent Predictions</h1>
+<table border="1">
+<tr><th>Match</th><th>Home</th><th>Away</th><th>Predicted</th><th>Probabilities</th></tr>
+{% for pred in predictions %}
+<tr>
+<td>{{ pred.match }}</td>
+<td>{{ pred.home }}</td>
+<td>{{ pred.away }}</td>
+<td>{{ pred.predicted }}</td>
+<td>Home: {{ pred.p_home|round(2) }}, Draw: {{ pred.p_draw|round(2) }}, Away: {{ pred.p_away|round(2) }}</td>
+</tr>
+{% endfor %}
+</table>
+</body>
+</html>

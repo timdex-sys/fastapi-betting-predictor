@@ -1,0 +1,14 @@
+# ==================== db.py ====================
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+import os
+
+
+db_url = os.getenv('DATABASE_URL')
+engine = create_engine(db_url)
+SessionLocal = sessionmaker(bind=engine)
+
+
+def init_db():
+from models_db import Base
+Base.metadata.create_all(bind=engine)

@@ -1,0 +1,10 @@
+# ==================== retrain.py ====================
+import requests
+
+
+def retrain_with_lineups(tracked_teams):
+# Simplified retrain stub
+# In practice, fetch Goal.com lineups, injuries, parse, calculate multipliers
+print(f"Retraining for teams: {tracked_teams}")
+params = {'home_multiplier':1.0, 'away_multiplier':1.0}
+return {'status':'success','params':params}

@@ -1,0 +1,40 @@
+# ==================== models_db.py ====================
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+
+
+Base = declarative_base()
+
+
+class Prediction(Base):
+__tablename__ = 'predictions'
+id = Column(Integer, primary_key=True, index=True)
+match = Column(String, index=True)
+home = Column(String)
+away = Column(String)
+odds = Column(JSON)
+lambda_home = Column(Float)
+lambda_away = Column(Float)
+p_home = Column(Float)
+p_draw = Column(Float)
+p_away = Column(Float)
+predicted = Column(String)
+created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Result(Base):
+__tablename__ = 'results'
+id = Column(Integer, primary_key=True, index=True)
+prediction_id = Column(Integer)
+home_goals = Column(Integer)
+away_goals = Column(Integer)
+result = Column(String)
+
+
+class Multiplier(Base):
+__tablename__ = 'multipliers'
+id = Column(Integer, primary_key=True, index=True)
+name = Column(String, unique=True)
+value = Column(Float)
+
