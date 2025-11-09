@@ -1,10 +1,290 @@
-# ==================== retrain.py ====================
+# retrain.py
+"""
+Retrain / fetch job:
+- Fetch fixtures (basic scraper fallback)
+- Fetch team lineups & injuries from Goal.com (best-effort scraper)
+- Compute Poisson-based predictions (uses model.py lambdas/predictors)
+- Save / update predictions in the DB (models_db.MatchPrediction)
+"""
+
+import time
+import json
 import requests
+from bs4 import BeautifulSoup
+from datetime import date, datetime, timedelta
+from sqlalchemy.exc import SQLAlchemyError
+
+# import DB/session and ORM models
+from db import SessionLocal, engine
+from models_db import Base, MatchPrediction  # MatchPrediction should exist in models_db
+from model import lambdas_from_odds, match_probs_from_lambdas  # uses your model.py
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    )
+}
+
+# create tables if missing
+Base.metadata.create_all(bind=engine)
 
 
-def retrain_with_lineups(tracked_teams):
-# Simplified retrain stub
-# In practice, fetch Goal.com lineups, injuries, parse, calculate multipliers
-print(f"Retraining for teams: {tracked_teams}")
-params = {'home_multiplier':1.0, 'away_multiplier':1.0}
-return {'status':'success','params':params}
+def safe_get(url, max_tries=3, pause=1.5):
+    """Simple HTTP GET with retry"""
+    for attempt in range(max_tries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=12)
+            if r.status_code == 200:
+                return r.text
+            # sometimes temporary; wait then retry
+        except Exception:
+            pass
+        time.sleep(pause)
+    return None
+
+
+def fetch_fixtures_forebet(target_date: date):
+    """
+    Best-effort scraper to fetch fixtures for given date from Forebet / alternative sources.
+    Forebet structure can change — this function attempts to find matches in a few locations.
+    Returns list of dicts: {home, away, kickoff (iso), odds_home, odds_draw, odds_away}
+    If odds aren't available, odds_* will be None.
+    """
+    dd = target_date.strftime("%Y-%m-%d")
+    results = []
+
+    # Placeholder attempts: Forebet has multiple country pages and different layouts.
+    # We'll try a generic search url and fallback to a common aggregator.
+    search_urls = [
+        f"https://www.forebet.com/en/football-predictions?d={dd}",  # hypothetical
+        # fallback example pages (these may change)
+        f"https://www.soccerbase.com/matches?date={dd}",
+    ]
+    for url in search_urls:
+        html = safe_get(url)
+        if not html:
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        # attempt multiple heuristics to find match rows:
+        rows = soup.select("table tr") or soup.select(".match-row") or soup.select(".fixture")
+        for r in rows:
+            text = r.get_text(" ", strip=True)
+            # Heuristic: two team names separated by vs or -
+            if " vs " in text or " - " in text:
+                # crude split — will be refined
+                if " vs " in text:
+                    parts = text.split(" vs ", 1)
+                else:
+                    parts = text.split(" - ", 1)
+                home = parts[0].strip()
+                away = parts[1].split()[0].strip() if len(parts[1].split()) > 0 else parts[1].strip()
+                # attempt odds parsing:
+                o_home = o_draw = o_away = None
+                # try to find numeric odds in the row
+                nums = [n for n in r.get_text().split() if n.replace(".", "", 1).isdigit()]
+                if len(nums) >= 3:
+                    try:
+                        o_home = float(nums[0])
+                        o_draw = float(nums[1])
+                        o_away = float(nums[2])
+                    except Exception:
+                        pass
+                # append
+                results.append({
+                    "home": home,
+                    "away": away,
+                    "kickoff": dd,
+                    "odds_home": o_home,
+                    "odds_draw": o_draw,
+                    "odds_away": o_away,
+                })
+        if results:
+            break
+
+    # If nothing found, return an empty list (caller should handle fallback)
+    return results
+
+
+def fetch_goal_team_lineup(team_name: str):
+    """
+    Best-effort: fetch team page on goal.com to extract short lineup/injury clues.
+    Returns dict {team, lineup:[names], injuries:[strings]}
+    """
+    slug = team_name.lower().replace(" ", "-")
+    url = f"https://www.goal.com/en/team/{slug}/squad"
+    html = safe_get(url)
+    if not html:
+        return {"team": team_name, "lineup": [], "injuries": []}
+    soup = BeautifulSoup(html, "html.parser")
+    players = []
+    injuries = []
+
+    # Goal.com often uses data-player-name attributes on anchors for players
+    for a in soup.select("a[data-player-name]"):
+        name = a.get("data-player-name")
+        if name:
+            players.append(name.strip())
+
+    # fallback: look for squad lists
+    if not players:
+        for el in soup.select(".squad li, .player-list li"):
+            ptext = el.get_text(" ", strip=True)
+            if ptext:
+                players.append(ptext.split("\n")[0].strip())
+
+    # try to detect injury words in page text
+    page_text = soup.get_text(" ").lower()
+    for keyword in ["injury", "injured", "suspended", "withdrawn", "doubtful", "ruled out"]:
+        if keyword in page_text:
+            injuries.append(keyword)
+
+    return {"team": team_name, "lineup": players[:16], "injuries": list(set(injuries))}
+
+
+def estimate_lambdas_from_history(home: str, away: str):
+    """
+    Simple fallback: estimate expected goals from league averages or constants if odds missing.
+    This is intentionally conservative.
+    """
+    # A basic heuristic: home 1.4 goals, away 1.0 goals baseline
+    base_home = 1.4
+    base_away = 1.0
+    # small random or form-based adjustments could be applied here
+    return base_home, base_away
+
+
+def predict_and_store(matches, send_summary=False):
+    """
+    For each match dict in matches:
+      - compute lambdas (from odds if available, otherwise estimate)
+      - compute match probabilities (home/draw/away)
+      - insert or update MatchPrediction row for the match_date/home/away
+    """
+    db = SessionLocal()
+    inserted = 0
+    updated = 0
+    errors = 0
+    summary_rows = []
+
+    for m in matches:
+        try:
+            # parse kickoff into date if needed
+            mdate = m.get("kickoff")
+            try:
+                mdate_obj = datetime.fromisoformat(mdate).date() if "T" in str(mdate) else datetime.fromisoformat(mdate + "T00:00:00").date()
+            except Exception:
+                # if already YYYY-MM-DD
+                try:
+                    mdate_obj = datetime.strptime(str(mdate), "%Y-%m-%d").date()
+                except Exception:
+                    mdate_obj = date.today()
+
+            # get lineups/injury quick-checks
+            home_name = m.get("home")
+            away_name = m.get("away")
+            # polite delay when hitting Goal
+            lineup_home = fetch_goal_team_lineup(home_name)
+            time.sleep(0.8)
+            lineup_away = fetch_goal_team_lineup(away_name)
+            time.sleep(0.8)
+
+            # compute lambdas
+            if m.get("odds_home") and m.get("odds_draw") and m.get("odds_away"):
+                lh, la = lambdas_from_odds(
+                    float(m["odds_home"]), float(m["odds_draw"]), float(m["odds_away"])
+                )
+            else:
+                lh, la = estimate_lambdas_from_history(home_name, away_name)
+
+            probs = match_probs_from_lambdas(lh, la)
+            predicted = max(probs, key=probs.get)
+            win_prob = round(probs.get(predicted, 0.0) * 100, 2)
+
+            # upsert into DB (match identified by date + home + away)
+            existing = db.query(MatchPrediction).filter(
+                MatchPrediction.match_date == mdate_obj,
+                MatchPrediction.home_team.ilike(home_name),
+                MatchPrediction.away_team.ilike(away_name),
+            ).first()
+
+            odds_json = json.dumps({
+                "home": m.get("odds_home"),
+                "draw": m.get("odds_draw"),
+                "away": m.get("odds_away")
+            })
+
+            if existing:
+                existing.prediction = predicted
+                existing.win_probability = str(win_prob)
+                existing.odds = odds_json
+                existing.updated_at = datetime.utcnow()
+                db.add(existing)
+                updated += 1
+            else:
+                new = MatchPrediction(
+                    match_date=mdate_obj,
+                    home_team=home_name,
+                    away_team=away_name,
+                    prediction=predicted,
+                    win_probability=str(win_prob),
+                    odds=odds_json,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+                db.add(new)
+                inserted += 1
+
+            summary_rows.append({
+                "date": mdate_obj.isoformat(),
+                "match": f"{home_name} vs {away_name}",
+                "predicted": predicted,
+                "win_prob": win_prob
+            })
+            # be polite
+            time.sleep(0.4)
+
+        except SQLAlchemyError as e:
+            db.rollback()
+            errors += 1
+        except Exception as e:
+            errors += 1
+
+    try:
+        db.commit()
+    finally:
+        db.close()
+
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "errors": errors,
+        "summary": summary_rows
+    }
+
+
+def fetch_today_and_run(target_date=None):
+    """
+    Main entrypoint: fetch fixtures for target_date and run predictions.
+    If nothing is found, do nothing.
+    """
+    if target_date is None:
+        target_date = date.today()
+
+    # Step 1: fetch fixtures
+    fixtures = fetch_fixtures_forebet(target_date)
+    # If empty, optionally try other sources or return with no-op
+    if not fixtures:
+        # fallback: try to assemble fixtures from a small manual list or return
+        return {"status": "no-fixtures-found", "date": str(target_date)}
+
+    # Step 2: run predictions and store
+    result = predict_and_store(fixtures)
+    return {"status": "ok", "date": str(target_date), **result}
+
+
+# If run directly for testing:
+if __name__ == "__main__":
+    print("Running retrain for today...")
+    out = fetch_today_and_run(date.today())
+    print(json.dumps(out, indent=2))
