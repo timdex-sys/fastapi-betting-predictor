@@ -1,30 +1,30 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from datetime import date
 
-# Initialize app
-app = FastAPI(title="Betting Predictor Dashboard")
+app = FastAPI()
 
-# Tell FastAPI where the templates are
-templates = Jinja2Templates(directory="templates")
+# Setup templates folder
+templates = Jinja2Templates(directory="dashboard/templates")
 
-# Example: mock data (later this will come from your predictor)
-today_matches = [
-    {"home": "Aston Villa", "away": "Maccabi Tel Aviv", "prediction": "Aston Villa Win"},
-    {"home": "Bologna", "away": "Brann", "prediction": "Bologna Win"},
-    {"home": "Sturm Graz", "away": "Nottingham", "prediction": "Nottingham Win"},
-]
+# Optional: if you have static files (CSS, JS)
+app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 
-# Route for the dashboard page
-@app.get("/", response_class=HTMLResponse)
+# Example mock predictions (replace later with real database data)
+def get_today_predictions():
+    return [
+        {"home": "Arsenal", "away": "Chelsea", "prediction": "Arsenal Win"},
+        {"home": "Real Madrid", "away": "Barcelona", "prediction": "Draw"},
+        {"home": "Man City", "away": "Liverpool", "prediction": "Man City Win"},
+        {"home": "PSG", "away": "Monaco", "prediction": "PSG Win"},
+    ]
+
+@app.get("/")
 def home(request: Request):
+    today = date.today().strftime("%Y-%m-%d")
+    games = get_today_predictions()
     return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "matches": today_matches}
+        "index.html",
+        {"request": request, "today": today, "matches": games}
     )
-
-# Optional API endpoint if you need JSON data
-@app.get("/api/matches")
-def get_matches():
-    return {"matches": today_matches}
-

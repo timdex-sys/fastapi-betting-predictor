@@ -1,32 +1,70 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Betting Predictor Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; background: #fafafa; margin: 40px; }
-    h1 { color: #222; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
-    th { background: #eee; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Betting Predictor Dashboard</title>
+    <meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 min -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #222;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        th, td {
+            border-bottom: 1px solid #eee;
+            text-align: left;
+            padding: 12px;
+        }
+        th {
+            background: #0077ff;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f0f8ff;
+        }
+        footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
-  <h1>Betting Predictor Dashboard</h1>
-  <table>
-    <tr>
-      <th>Home Team</th>
-      <th>Away Team</th>
-      <th>Predicted Result</th>
-    </tr>
-    {% for match in matches %}
-    <tr>
-      <td>{{ match.home }}</td>
-      <td>{{ match.away }}</td>
-      <td>{{ match.prediction }}</td>
-    </tr>
-    {% endfor %}
-  </table>
+    <h1>Today's Games — {{ today }}</h1>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Home Team</th>
+                <th>Away Team</th>
+                <th>Expected Outcome</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for game in matches %}
+            <tr>
+                <td>{{ game.home }}</td>
+                <td>{{ game.away }}</td>
+                <td>{{ game.prediction }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <footer>
+        <p>Auto-refreshes every 5 minutes — Powered by FastAPI Betting Predictor ⚡</p>
+    </footer>
 </body>
 </html>
