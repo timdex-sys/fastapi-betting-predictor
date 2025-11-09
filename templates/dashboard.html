@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Betting Predictor Dashboard</title>
     <meta http-equiv="refresh" content="300"> <!-- Auto-refresh every 5 min -->
-    <style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+<style>
         body {
             font-family: Arial, sans-serif;
             margin: 40px;
@@ -43,7 +45,11 @@
 </head>
 <body>
     <h1>Today's Games — {{ today }}</h1>
-
+   <div style="margin-bottom: 20px;">
+      <a href="/">Today</a> |
+      <a href="/filter/tomorrow">Tomorrow</a> |
+      <a href="/filter/all">All</a>
+    </div>
     <table>
         <thead>
             <tr>
@@ -55,13 +61,34 @@
         <tbody>
             {% for game in matches %}
             <tr>
-                <td>{{ game.home }}</td>
-                <td>{{ game.away }}</td>
-                <td>{{ game.prediction }}</td>
+                <td>{{ game.home_team }}</td>
+                <td>{{ game.away_team }}</td>
+                <td>{{ game.prediction }} ({{ game.win_probability }})</td>
+
             </tr>
             {% endfor %}
         </tbody>
     </table>
+<canvas id="chart" height="100"></canvas>
+<script>
+const labels = [{% for g in matches %}"{{ g.home_team }} vs {{ g.away_team }}",{% endfor %}];
+const data = [{% for g in matches %}{{ g.win_probability|default(50) }},{% endfor %}];
+const ctx = document.getElementById('chart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: 'Win Probability (%)',
+            data: data,
+            backgroundColor: 'rgba(0, 119, 255, 0.5)',
+            borderColor: '#0077ff',
+            borderWidth: 1
+        }]
+    },
+    options: { scales: { y: { beginAtZero: true, max: 100 } } }
+});
+</script>
 
     <footer>
         <p>Auto-refreshes every 5 minutes — Powered by FastAPI Betting Predictor ⚡</p>

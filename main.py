@@ -1,30 +1,47 @@
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.orm import Session
 from datetime import date
+from db import SessionLocal, engine
+from models_db import Base, MatchPrediction
+
+# Create tables if not exist
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# Setup templates folder
 templates = Jinja2Templates(directory="dashboard/templates")
-
-# Optional: if you have static files (CSS, JS)
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 
-# Example mock predictions (replace later with real database data)
-def get_today_predictions():
-    return [
-        {"home": "Arsenal", "away": "Chelsea", "prediction": "Arsenal Win"},
-        {"home": "Real Madrid", "away": "Barcelona", "prediction": "Draw"},
-        {"home": "Man City", "away": "Liverpool", "prediction": "Man City Win"},
-        {"home": "PSG", "away": "Monaco", "prediction": "PSG Win"},
-    ]
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-@app.get("/")
-def home(request: Request):
-    today = date.today().strftime("%Y-%m-%d")
-    games = get_today_predictions()
+from datetime import timedelta
+
+@app.get("/filter/{day}")
+def filter_by_day(request: Request, day: str):
+    db = next(get_db())
+    today = date.today()
+
+    if day == "tomorrow":
+        target_date = today + timedelta(days=1)
+    elif day == "all":
+        matches = db.query(MatchPrediction).all()
+        target_date = None
+    else:
+        target_date = today
+
+    if target_date:
+        matches = db.query(MatchPrediction).filter(MatchPrediction.match_date == target_date).all()
+
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "today": today, "matches": games}
+        {"request": request, "today": target_date or "All", "matches": matches}
     )
+
