@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Betting Predictor Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #fafafa; margin: 40px; }
+    h1 { color: #222; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+    th { background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>Betting Predictor Dashboard</h1>
+  <table>
+    <tr>
+      <th>Home Team</th>
+      <th>Away Team</th>
+      <th>Predicted Result</th>
+    </tr>
+    {% for match in matches %}
+    <tr>
+      <td>{{ match.home }}</td>
+      <td>{{ match.away }}</td>
+      <td>{{ match.prediction }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
